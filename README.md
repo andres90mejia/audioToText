@@ -29,8 +29,8 @@
 
 1. Clona este repositorio  
    ```bash
-   git clone https://github.com/tuusuario/voz-texto-historial.git
-   cd voz-texto-historial
+   git clone https://github.com/student-forever-01/audioToText.git
+   cd audioToText
 2. Abre index.html en tu navegador (Chrome o Edge)
 3. Concede permiso al micrófono cuando te lo solicite el navegador.
 4. Selecciona el idioma, pulsa 🎤 Iniciar y comienza a hablar.
