@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voz a Texto con Historial y Traducción</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="controls">
+      <div class="language-selector">
+        <button class="lang-btn active" data-lang="es-ES">🇪🇸 Español</button>
+        <button class="lang-btn" data-lang="en-US">🇺🇸 English</button>
+      </div>
+      <button id="clearBtn" class="clear-button">🗑️ Limpiar</button>
+    </div>
+
+    <div class="chat-container">
+      <div id="transcription" class="transcription-box"></div>
+      <!-- Contenedor del historial dividido en dos columnas -->
+      <div class="history-container">
+        <div id="history-original" class="history-box">
+          <h3>Original</h3>
+        </div>
+        <div id="history-translation" class="history-box">
+          <h3>Traducción</h3>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status-message"></div>
+    <button id="startBtn" class="mic-button">🎤 Iniciar</button>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
