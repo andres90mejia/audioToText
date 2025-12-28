@@ -1,3 +1,4 @@
+<!-- index.html (sin cambios) -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -14,12 +15,16 @@
         <button class="lang-btn" data-lang="en-US">🇺🇸 English</button>
       </div>
       <button id="clearBtn" class="clear-button">🗑️ Limpiar</button>
+      <button id="toggleHistoryBtn" class="toggle-history-btn">📜 Historial</button>
     </div>
 
     <div class="chat-container">
+      <div class="volume-meter">
+        <div id="volumeLevel" class="volume-level"></div>
+      </div>
       <div id="transcription" class="transcription-box"></div>
-      <!-- Contenedor del historial dividido en dos columnas -->
-      <div class="history-container">
+      <div id="status" class="status-message"></div>
+      <div id="historyWrapper" class="history-container">
         <div id="history-original" class="history-box">
           <h3>Original</h3>
         </div>
@@ -29,7 +34,6 @@
       </div>
     </div>
 
-    <div id="status" class="status-message"></div>
     <button id="startBtn" class="mic-button">🎤 Iniciar</button>
   </div>
   <script src="script.js"></script>

@@ -1,199 +1,238 @@
-const startBtn = document.getElementById('startBtn');
-const clearBtn = document.getElementById('clearBtn');
-const langButtons = document.querySelectorAll('.lang-btn');
-const transcription = document.getElementById('transcription');
-const historyOriginal = document.getElementById('history-original');
+// script.js (versión 2)
+const startBtn           = document.getElementById('startBtn');
+const clearBtn           = document.getElementById('clearBtn');
+const toggleHistoryBtn   = document.getElementById('toggleHistoryBtn');
+const langButtons        = document.querySelectorAll('.lang-btn');
+const transcription      = document.getElementById('transcription');
+const historyOriginal    = document.getElementById('history-original');
 const historyTranslation = document.getElementById('history-translation');
-const statusMessage = document.getElementById('status');
+const historyWrapper     = document.getElementById('historyWrapper');
+const statusMessage      = document.getElementById('status');
+const volumeLevel        = document.getElementById('volumeLevel');
 
-let recognition = null;
-let isRecording = false;
-let currentLanguage = 'es-ES'; // Idioma de reconocimiento
-let historyData = [];
+let recognition   = null;
+let isRecording   = false;
+let currentLanguage = 'es-ES';
+let sharedStream  = null;
+let audioContext  = null;
+let analyser      = null;
 
-// Mapea el idioma de reconocimiento al código de traducción
+// —— Traducción ——
 function getTranslationCodes(lang) {
-  // Si se reconoce en español, se traduce de 'es' a 'en', y viceversa.
-  if (lang === 'es-ES') {
-    return { source: 'es', target: 'en' };
-  } else if (lang === 'en-US') {
-    return { source: 'en', target: 'es' };
-  }
-  // Por defecto, asume español a inglés
-  return { source: 'es', target: 'en' };
+  return lang === 'es-ES'
+    ? { source: 'es', target: 'en' }
+    : { source: 'en', target: 'es' };
 }
 
-// Función para traducir texto usando LibreTranslate API
 async function translateText(text, lang) {
-    const { source, target } = getTranslationCodes(lang);
-  
-    if (!text || typeof text !== 'string') {
-      console.error('Texto a traducir no válido:', text);
-      statusMessage.textContent = 'Error: Texto a traducir no válido';
-      return 'Error al traducir';
-    }
-  
-    try {
-      const endpoint = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${target}`;
-      
-      const response = await fetch(endpoint);
-  
-      if (!response.ok) {
-        throw new Error(`API responded with status ${response.status}`);
-      }
-  
-      const data = await response.json();
-      if (!data.responseData || !data.responseData.translatedText) {
-        throw new Error('No translatedText in response');
-      }
-  
-      return data.responseData.translatedText;
-    } catch (error) {
-      console.error('Error en la traducción:', error);
-      statusMessage.textContent = `Error en la traducción: ${error.message}`;
-      return 'Error al traducir';
-    }
+  const { source, target } = getTranslationCodes(lang);
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${target}`
+    );
+    const data = await res.json();
+    return data.responseData.translatedText || 'Error al traducir';
+  } catch {
+    return 'Error al traducir';
+  }
 }
 
-
-// Inicializa el reconocimiento de voz
+// —— SpeechRecognition setup ——
 function initializeRecognition() {
-  if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = currentLanguage;
-
-    recognition.onstart = () => {
-      statusMessage.textContent = currentLanguage === 'es-ES' ? "Escuchando..." : "Listening...";
-      startBtn.classList.add('recording');
-      startBtn.textContent = currentLanguage === 'es-ES' ? "⏹️ Detener" : "⏹️ Stop";
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Error:', event.error);
-      statusMessage.textContent = `Error: ${event.error}`;
-      stopRecognition();
-    };
-
-    recognition.onresult = (event) => {
-      let interim = '';
-      let finalTranscript = '';
-      // Procesa solo los resultados nuevos usando event.resultIndex
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript + ' ';
-        } else {
-          interim += result[0].transcript;
-        }
-      }
-      
-      transcription.textContent = interim;
-      if (finalTranscript) {
-        // Agrega mensaje original y traduce de forma asíncrona
-        addToHistory(finalTranscript.trim());
-        transcription.textContent = '';
-      }
-    };
-
-    recognition.onend = () => {
-      if (isRecording) {
-        recognition.start(); // Reinicia si aún está grabando
-      }
-    };
-  } else {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    statusMessage.textContent = 'Navegador no compatible';
     startBtn.disabled = true;
-    statusMessage.textContent = "Navegador no compatible";
+    return;
   }
-}
+  recognition = new SR();
+  recognition.continuous      = true;
+  recognition.interimResults  = true;
+  recognition.lang            = currentLanguage;
 
-// Inicia o detiene la grabación de voz
-async function toggleRecording() {
-  if (!isRecording) {
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      isRecording = true;
-      if (!recognition) initializeRecognition();
-      recognition.lang = currentLanguage; // Asegura que siempre tenga el idioma actualizado
-      recognition.start();
-    } catch (err) {
-      statusMessage.textContent = "Acceso al micrófono denegado";
-      console.error(err);
+  recognition.onstart = () => {
+    statusMessage.textContent =
+      currentLanguage === 'es-ES' ? 'Escuchando...' : 'Listening...';
+    startBtn.classList.add('recording');
+    startBtn.textContent =
+      currentLanguage === 'es-ES' ? '⏹️ Detener' : '⏹️ Stop';
+    isRecording = true;
+  };
+
+  recognition.onresult = (e) => {
+    let interim = '', finalT = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) finalT += r[0].transcript + ' ';
+      else interim += r[0].transcript;
     }
-  } else {
+    transcription.textContent = interim;
+    if (finalT) addToHistory(finalT.trim());
+  };
+
+  recognition.onerror = (e) => {
+    statusMessage.textContent = `Error: ${e.error}`;
     stopRecognition();
+  };
+
+  recognition.onend = () => {
+    // Si estábamos grabando, lo dejamos corriendo (Chrome a veces lo para solo)
+    if (isRecording) recognition.start();
+  };
+}
+
+// —— Control de grabación ——
+function toggleRecording() {
+  if (!recognition) return;
+
+  if (isRecording) {
+    stopRecognition();
+  } else {
+    // Arrancamos *una sola vez* la recogida de audio
+    recognition.lang = currentLanguage;
+    recognition.start();
+    // Volumen (usa el stream que ya pedimos)
+    if (sharedStream) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const src = audioContext.createMediaStreamSource(sharedStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function updateVolume() {
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (const v of dataArray) {
+          const norm = (v - 128) / 128;
+          sum += norm * norm;
+        }
+        const rms = Math.sqrt(sum / dataArray.length);
+        const pct = Math.min(rms * 150, 100);
+        volumeLevel.style.width = `${pct}%`;
+        if (isRecording) requestAnimationFrame(updateVolume);
+      }
+      requestAnimationFrame(updateVolume);
+    }
   }
 }
 
-// Detiene la grabación y reinicia la UI
 function stopRecognition() {
-  if (recognition) {
-    recognition.stop();
-  }
   isRecording = false;
+  if (recognition) recognition.stop();
   resetUI();
+  volumeLevel.style.width = '0';
+  if (audioContext) audioContext.close();
 }
 
-// Restablece la UI cuando se detiene la grabación
 function resetUI() {
   startBtn.classList.remove('recording');
-  startBtn.textContent = "🎤 " + (currentLanguage === 'es-ES' ? "Iniciar" : "Start");
-  statusMessage.textContent = currentLanguage === 'es-ES' ? "Presiona Iniciar para comenzar" : "Press Start to begin";
+  startBtn.textContent =
+    `🎤 ${currentLanguage === 'es-ES' ? 'Iniciar' : 'Start'}`;
+  statusMessage.textContent =
+    currentLanguage === 'es-ES'
+      ? 'Presiona Iniciar para comenzar'
+      : 'Press Start to begin';
 }
 
-// Limpia la transcripción y ambos historiales
+// —— Historial ——
 function clearAll() {
   transcription.textContent = '';
   historyOriginal.innerHTML = '<h3>Original</h3>';
   historyTranslation.innerHTML = '<h3>Traducción</h3>';
-  historyData = [];
 }
 
-// Agrega el mensaje al historial original y solicita su traducción
 async function addToHistory(text) {
-  const timestamp = new Date();
-  historyData.unshift({ text, timestamp });
+  const ts = new Date();
+  // Original
+  const orig = document.createElement('div');
+  orig.className = 'message-bubble';
+  orig.innerHTML = `
+    <div class="message-time">${ts.toLocaleTimeString()}</div>
+    <div class="message-text">${text}</div>`;
+  historyOriginal.insertBefore(orig, historyOriginal.firstChild);
+  setTimeout(() => orig.classList.add('show'), 10);
 
-  // Crea la burbuja del mensaje original
-  const entryOriginal = document.createElement('div');
-  entryOriginal.className = 'message-bubble';
-  entryOriginal.innerHTML = `
-    <div class="message-time">${timestamp.toLocaleTimeString()}</div>
-    <div class="message-text">${text}</div>
-  `;
-  historyOriginal.insertBefore(entryOriginal, historyOriginal.firstChild);
-
-  // Traduce el texto y agrega la traducción al historial correspondiente
-  const translatedText = await translateText(text, currentLanguage);
-  const entryTranslation = document.createElement('div');
-  entryTranslation.className = 'message-bubble';
-  entryTranslation.innerHTML = `
-    <div class="message-time">${timestamp.toLocaleTimeString()}</div>
-    <div class="message-text">${translatedText}</div>
-  `;
-  historyTranslation.insertBefore(entryTranslation, historyTranslation.firstChild);
+  // Traducción
+  const tr = await translateText(text, currentLanguage);
+  const transEl = document.createElement('div');
+  transEl.className = 'message-bubble';
+  transEl.innerHTML = `
+    <div class="message-time">${ts.toLocaleTimeString()}</div>
+    <div class="message-text">${tr}</div>`;
+  historyTranslation.insertBefore(transEl, historyTranslation.firstChild);
+  setTimeout(() => transEl.classList.add('show'), 10);
 }
 
-// Maneja el cambio de idioma
+// —— Cambio de idioma SIN detener ni reiniciar reconocimiento ——  
 function handleLanguageChange(lang) {
-  if (currentLanguage !== lang) {
-    currentLanguage = lang;
-    langButtons.forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.lang === lang);
-    });
-    stopRecognition(); // Detiene la grabación antes de cambiar el idioma
-    clearAll();
+  if (lang === currentLanguage) return;
+  currentLanguage = lang;
+  langButtons.forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.lang === lang)
+  );
+
+  // Actualizamos la propiedad lang de la misma instancia
+  if (recognition) recognition.lang = currentLanguage;
+
+  // Si estamos grabando, actualizamos el texto de UI inmediatamente
+  if (isRecording) {
+    statusMessage.textContent =
+      currentLanguage === 'es-ES' ? 'Escuchando...' : 'Listening...';
+    startBtn.textContent =
+      currentLanguage === 'es-ES' ? '⏹️ Detener' : '⏹️ Stop';
+  }
+
+  // Limpiamos historial/transcripción (opcional)
+  clearAll();
+}
+
+// —— Toggle historial en móvil ——
+toggleHistoryBtn.addEventListener('click', () => {
+  historyWrapper.style.display =
+    historyWrapper.style.display === 'none' ? 'flex' : 'none';
+});
+
+// —— Sólo pedimos permiso la primera vez ——
+async function initMedia() {
+  const askedBefore = localStorage.getItem('micAsked');
+  if (!askedBefore) {
+    localStorage.setItem('micAsked', 'true');
+    try {
+      sharedStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      statusMessage.textContent = 'Micrófono no disponible';
+      startBtn.disabled = true;
+      return;
+    }
+  } else {
+    // ya preguntamos, intentamos sin prompt
+    try {
+      sharedStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      statusMessage.textContent = 'Permiso de micrófono denegado';
+      startBtn.disabled = true;
+      return;
+    }
+  }
+
+  initializeRecognition();
+}
+
+// —— Mantener historial visible al redimensionar ——
+function adjustHistoryOnResize() {
+  if (window.innerWidth > 600) {
+    historyWrapper.style.display = 'flex';
   }
 }
 
-// Eventos para los botones
+// —— Listeners generales ——
 startBtn.addEventListener('click', toggleRecording);
 clearBtn.addEventListener('click', clearAll);
-langButtons.forEach(btn => {
-  btn.addEventListener('click', () => handleLanguageChange(btn.dataset.lang));
-});
+langButtons.forEach(btn =>
+  btn.addEventListener('click', () => handleLanguageChange(btn.dataset.lang))
+);
 
-// Inicializa el reconocimiento de voz al cargar la página
-initializeRecognition();
+window.addEventListener('load', initMedia);
+window.addEventListener('resize', adjustHistoryOnResize);
+adjustHistoryOnResize();
